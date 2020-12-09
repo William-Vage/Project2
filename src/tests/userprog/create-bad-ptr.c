@@ -8,5 +8,9 @@
 void
 test_main (void) 
 {
+  // char *p = (char*)0x20101234;
+  // printf (" start \n");
+  // *p = 'a';
+  // printf ("%c\n", *p);
   msg ("create(0x20101234): %d", create ((char *) 0x20101234, 0));
 }

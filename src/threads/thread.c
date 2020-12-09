@@ -12,6 +12,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #ifdef USERPROG
+#include "filesys/file.h"
 #include "userprog/process.h"
 #endif
 
@@ -92,12 +93,14 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  lock_init (&filesys_lock);
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+  initial_thread->fd = 2;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -181,6 +184,7 @@ thread_create (const char *name, int priority,
 
   /* Initialize thread. */
   init_thread (t, name, priority);
+  // printf("---%d---\n", t->status);
   tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
@@ -198,8 +202,14 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  t->parentId = thread_current ()->tid;
+  // printf("---123---\n");
+  // printf("---456---\n");
+  // printf("---%s %d---\n", t->name, t->status);
+
   /* Add to run queue. */
   thread_unblock (t);
+  // printf("---%s %d---\n", t->name, t->status);
 
   return tid;
 }
@@ -236,6 +246,7 @@ thread_unblock (struct thread *t)
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
+  // printf("---%s %d---\n", t->name, t->status);
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
@@ -285,12 +296,50 @@ thread_exit (void)
 #ifdef USERPROG
   process_exit ();
 #endif
-
   /* Remove thread from all threads list, set our status to dying,
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
+  struct thread *cur = thread_current ();
+
+  list_remove (&cur->allelem);
+  struct list_elem *e;
+
+  /* CLose all the files. */
+  while (cur->file_num != 0)
+  {
+    e = list_pop_front (&cur->file_list);
+    struct file_control_block *fcb = list_entry (e, struct file_control_block, file_elem);
+    
+    lock_acquire (&filesys_lock);
+    file_close (fcb -> process_file);
+    lock_release (&filesys_lock);
+    
+    list_remove (e);
+    cur->file_num--;
+    palloc_free_page (fcb);
+  }
+
+  /* Wake parents up if needed. */
+  struct thread *p = thread_find (cur->parentId);
+  int id = cur->tid;
+
+  if (p != NULL)
+  {
+    struct list_elem *e;
+    struct child_process *child;
+    for (e = list_begin (&p->children); e!= list_end (&p->children); e = list_next (e))
+    {
+      child = list_entry (e, struct child_process, childelem);
+      if (child->tid == id)
+        break;
+    }
+    if (child->tid != id)
+      child = NULL;
+    if (child != NULL && child->waited)
+      sema_up (&child->sema);
+  }
+  
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -312,6 +361,22 @@ thread_yield (void)
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
+}
+
+/* Finds thread by its id. */
+struct thread *
+thread_find (tid_t tid)
+{
+  struct list_elem *e;
+  struct thread *t;
+  for (e = list_begin (&all_list); e != list_end (&all_list);
+       e = list_next (e))
+    {
+      t = list_entry (e, struct thread, allelem);
+      if (t->tid == tid) return t;
+    }
+  if (t->tid != tid) t = NULL;
+  return NULL;
 }
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
@@ -459,11 +524,22 @@ init_thread (struct thread *t, const char *name, int priority)
 
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
+  // printf("---%d---\n", t->status);
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
-
+#ifdef USERPROG
+  t->exec_sema.value = 0;
+  list_init (&t->exec_sema.waiters);
+  list_init (&t->children); 
+  list_init (&t->file_list);
+  lock_init (&t->child_lock);
+  // t->filename = (char*) malloc (16 * (sizeof (char)));
+  t->fd = 2;
+  t->file_num = 0;       
+  t->child_status = 0;                                                  
+#endif
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

@@ -27,6 +27,8 @@
 static const int EXPECTED_DEPTH_TO_PASS = 30;
 static const int EXPECTED_REPETITIONS = 10;
 
+const char *test_name = "multi-oom";
+
 enum child_termination_mode { RECURSE, CRASH };
 
 /* Spawn a recursive copy of ourselves, passing along instructions
@@ -46,6 +48,7 @@ spawn_child (int c, enum child_termination_mode mode)
 static void
 consume_some_resources (void)
 {
+  // printf ("consume\n");
   int fd, fdmax = 126;
 
   /* Open as many files as we can, up to fdmax.
@@ -105,8 +108,6 @@ main (int argc, char *argv[])
 {
   int n;
 
-  test_name = "multi-oom";
-
   n = argc > 1 ? atoi (argv[1]) : 0;
   bool is_at_root = (n == 0);
   if (is_at_root)
@@ -124,14 +125,17 @@ main (int argc, char *argv[])
 
   for (i = 0; i < howmany; i++)
     {
+      // printf ("before: n %d\n", n);
       pid_t child_pid;
-
+  
       /* Spawn a child that will be abnormally terminated.
          To speed the test up, do this only for processes
          spawned at a certain depth. */
       if (n > EXPECTED_DEPTH_TO_PASS/2)
         {
+          // printf ("3\n");
           child_pid = spawn_child (n + 1, CRASH);
+          // printf ("child id : %d\n", child_pid);
           if (child_pid != -1)
             {
               if (wait (child_pid) != -1)
@@ -143,11 +147,11 @@ main (int argc, char *argv[])
 
       /* Now spawn the child that will recurse. */
       child_pid = spawn_child (n + 1, RECURSE);
-
+      // printf ("n: %d, child id: %d\n", n, child_pid);
+      // printf ("expected depth: %d\n", expected_depth);
       /* If maximum depth is reached, return result. */
       if (child_pid == -1)
         return n;
-
       /* Else wait for child to report how deeply it was able to recurse. */
       int reached_depth = wait (child_pid);
       if (reached_depth == -1)
@@ -165,7 +169,7 @@ main (int argc, char *argv[])
     }
 
   consume_some_resources ();
-
+  // printf ("n : %d\n", n);
   if (n == 0)
     {
       if (expected_depth < EXPECTED_DEPTH_TO_PASS)

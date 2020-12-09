@@ -11,8 +11,11 @@ void
 test_main (void) 
 {
   char *p = get_bad_boundary ();
+  // printf ("before: %p\n", p);
   p--;
+  // printf ("after: %p\n", p);
   *p = 100;
+  // printf ("after_value: %d\n", *p);
 
   /* Invoke the system call. */
   asm volatile ("movl %0, %%esp; int $0x30" : : "g" (p));

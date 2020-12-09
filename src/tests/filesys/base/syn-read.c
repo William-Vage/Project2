@@ -19,8 +19,11 @@ test_main (void)
   pid_t children[CHILD_CNT];
   int fd;
 
+  // printf ("1\n");
   CHECK (create (file_name, sizeof buf), "create \"%s\"", file_name);
+  // printf ("2\n");
   CHECK ((fd = open (file_name)) > 1, "open \"%s\"", file_name);
+  // printf ("3\n");
   random_bytes (buf, sizeof buf);
   CHECK (write (fd, buf, sizeof buf) > 0, "write \"%s\"", file_name);
   msg ("close \"%s\"", file_name);
